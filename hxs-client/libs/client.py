@@ -25,6 +25,7 @@ class HermesExchangeProtocol(Protocol):
                     self.transport.write(data.encode("utf-8"))
         elif self.state == "AUTH":
             if command == "OK":
+                self.state = "INIT"
                 print("Authentication successful.")
                 print("Select operation: ")
             elif command == "AUTHFAIL":

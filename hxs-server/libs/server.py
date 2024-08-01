@@ -36,7 +36,7 @@ class HermesExchangeProtocol(Protocol):
                 else:
                     self.name = args[0]
                     self.users[args[0]] = self
-                    self.state = "WAIT"
+                    self.state = "MAIN"
                     self.transport.write(b"OK")
 
 
