@@ -6,9 +6,19 @@ from threading import Thread
 
 print(f"Welcome to the Hermes Exchange System Server.")
 with yaspin(Spinners.dots) as sp:
+    sp.text = f"Loading configuration file..."
+    if config.load_config(""):
+        sp.text = ""
+        sp.ok(f"✔ Configuration file loaded!")
+    else:
+        sp.text = ""
+        sp.ok(f"✘ Configuration file not found! Using default configuration.")
+
+with yaspin(Spinners.dots) as sp:
     sp.text = f"Trying to bind on {config.bind_ip}:{config.bind_port}..."
     server_thread = Thread(target=server.start_server, args=())
     server_thread.start()
     sp.text = ""
     sp.ok(f"✔ Server bound and listening on {config.bind_ip}:{config.bind_port}.")
+
 server_thread.join()
