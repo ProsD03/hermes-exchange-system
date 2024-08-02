@@ -43,6 +43,7 @@ class HermesExchangeProtocol(Protocol):
 
     def write_req(self, args):
         self.state = "WREQ"
+        self.requested_user = args[0]
         self.transport.write("WAIT".encode("utf-8"))
         self.users[args[0]].read_req([self.name, args[1], args[2]])
 
@@ -61,13 +62,22 @@ class HermesExchangeProtocol(Protocol):
         self.users[self.requesting_user].requested_user = None
         self.users[self.requesting_user].transport.write("DENY".encode("utf-8"))
         self.requesting_user = None
-        self.state = "NONE"
+        self.state = "MAIN"
+
+    def write(self, args):
+        self.users[self.requested_user].transport.write(f"DATA {args[0]}".encode("utf-8"))
+        self.users[self.requested_user].state = "MAIN"
+        self.users[self.requested_user].requesting_user = None
+        self.requested_user = None
+        self.state = "MAIN"
 
     def dataReceived(self, data):
         command = data.decode("utf-8")
         fragments = command.split(" ")
         command = fragments[0]
         args = fragments[1].split(";") if len(fragments) > 1 else []
+
+        print(f"{self.name} {command} {args}")
 
         stateMachine = {
             "AUTH": {
@@ -82,8 +92,7 @@ class HermesExchangeProtocol(Protocol):
                 "DENY": self.read_deny
             },
             "WRITE": {
-                "DATA": None,
-                "EOF": None
+                "DATA": self.write,
             }
         }
 

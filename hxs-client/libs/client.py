@@ -1,10 +1,12 @@
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
 from twisted.internet.protocol import Protocol, ClientFactory
-from sys import stdout
+from prompt_toolkit import prompt
+from prompt_toolkit.patch_stdout import patch_stdout
+from twisted.internet.task import deferLater
 
 
 # noinspection PyArgumentList
-class 0HermesExchangeProtocol(Protocol):
+class HermesExchangeProtocol(Protocol):
     def __init__(self):
         self.state = "INIT"
 
@@ -34,24 +36,65 @@ class 0HermesExchangeProtocol(Protocol):
         file = input("Path to file: ")
         self.transport.write(f"WRITE {user};{file};220".encode("utf-8"))
 
-    def main_loop(self, args: list):
+    def defer_main(self, args: list):
+        deferLater(reactor, 0, self.main_loop)
+
+    def main_loop(self):
         self.state = "MAIN"
         print("1. LIST users\n"
               "2. WRITE to user\n"
               "3. READ from user")
-        selection = input("Select an option: ")
+        with patch_stdout():
+            selection = prompt("Select an option: ")
+        self.handle_selection(selection)
+
+    def handle_selection(self, selection):
         if selection == "1":
             self.transport.write("LIST".encode("utf-8"))
+        elif selection == "2":
+            self.write_req()
+        elif selection == "3":
+            print("Waiting for user to send request...")
+            return
 
     def list_users(self, args):
         print("Connected users are: ")
         for user in args:
             print(user)
-        self.main_loop([])
+        self.defer_main([])
 
-    def wait_req(self,args):
+    def wait_req(self, args):
         self.state = "WAIT"
         print("Waiting for other user to accept request...")
+
+    def recieve_req(self, args):
+        print(f"User {args[0]} has requested to send a file: {args[1]}. Size: {args[2]}.")
+        choice = input("Do you accept? [y/n] ")
+        if choice == "y":
+            self.state = "READ"
+            self.transport.write("ACCEPT".encode("utf-8"))
+        else:
+            self.transport.write("DENY".encode("utf-8"))
+
+    def req_accept(self, args):
+        print("Request accepted. Starting file transfer.")
+        d = defer.Deferred()
+        self.transport.write("DATA ABCDABACDAFASFASGFASFASFQWFQFQFQGFQGWQGQG".encode("utf-8"))
+        print("Transfer Complete.")
+        d.callback(None)
+        self.state = "MAIN"
+        d.addCallback(self.defer_main)
+
+    def req_deny(self, args):
+        print("Request denied.")
+        self.state = "MAIN"
+        self.defer_main([])
+
+    def save_data(self, args):
+        print(args[0])
+        print("Transfer Complete.")
+        self.state = "MAIN"
+        self.defer_main([])
 
     def dataReceived(self, data):
         command = data.decode("utf-8")
@@ -64,21 +107,20 @@ class 0HermesExchangeProtocol(Protocol):
                 "AUTH": self.auth
             },
             "AUTH": {
-                "OK": self.main_loop,
+                "OK": self.defer_main,
                 "AUTHFAIL": self.auth_fail
             },
             "MAIN": {
                 "LIST": self.list_users,
                 "WAIT": self.wait_req,
-                "READ": None
+                "READ": self.recieve_req
             },
             "WAIT": {
-                "ACCEPT": None,
-                "DENY": None
+                "ACCEPT": self.req_accept,
+                "DENY": self.req_deny
             },
             "READ": {
-                "DATA": None,
-                "EOF": None
+                "DATA": self.save_data,
             }
         }
 
@@ -99,4 +141,6 @@ class HermesExchangeFactory(ClientFactory):
 
 def start_client(host: str, port: int):
     reactor.connectTCP(host, port, HermesExchangeFactory())
-    reactor.run(False)
+    reactor.run()
+
+
