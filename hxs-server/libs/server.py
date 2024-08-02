@@ -68,6 +68,7 @@ class HermesExchangeProtocol(Protocol):
         self.users[self.requested_user].transport.write(f"DATA {args[0]}".encode("utf-8"))
         self.users[self.requested_user].state = "MAIN"
         self.users[self.requested_user].requesting_user = None
+        self.transport.write("OK".encode("utf-8"))
         self.requested_user = None
         self.state = "MAIN"
 

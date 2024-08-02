@@ -77,13 +77,9 @@ class HermesExchangeProtocol(Protocol):
             self.transport.write("DENY".encode("utf-8"))
 
     def req_accept(self, args):
+        self.state = "WRITE"
         print("Request accepted. Starting file transfer.")
-        d = defer.Deferred()
         self.transport.write("DATA ABCDABACDAFASFASGFASFASFQWFQFQFQGFQGWQGQG".encode("utf-8"))
-        print("Transfer Complete.")
-        d.callback(None)
-        self.state = "MAIN"
-        d.addCallback(self.defer_main)
 
     def req_deny(self, args):
         print("Request denied.")
@@ -93,6 +89,11 @@ class HermesExchangeProtocol(Protocol):
     def save_data(self, args):
         print(args[0])
         print("Transfer Complete.")
+        self.state = "MAIN"
+        self.defer_main([])
+
+    def complete_write(self, args):
+        print("File transfer complete.")
         self.state = "MAIN"
         self.defer_main([])
 
@@ -121,7 +122,11 @@ class HermesExchangeProtocol(Protocol):
             },
             "READ": {
                 "DATA": self.save_data,
+            },
+            "WRITE": {
+                "OK": self.complete_write
             }
+
         }
 
         stateMachine[self.state][command](args)
