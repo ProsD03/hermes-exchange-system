@@ -10,6 +10,7 @@ from twisted.internet.task import deferLater
 # noinspection PyArgumentList
 class HermesExchangeProtocol(Protocol):
     def __init__(self):
+        self.buffer = None
         self.b64_string = ""
         self.filehandle = None
         self.file = None
@@ -23,8 +24,7 @@ class HermesExchangeProtocol(Protocol):
             username = "."
             while not username.isalnum():
                 username = input("Please set a username (only letters and numbers): ")
-            data = f"AUTH {username}"
-            self.transport.write(data.encode("utf-8"))
+            self.transport.write(f"AUTH {username}\n".encode("utf-8"))
 
     def auth_fail(self, args: list):
         if args[0] == "1":
@@ -40,7 +40,7 @@ class HermesExchangeProtocol(Protocol):
         with patch_stdout():
             user = prompt("Name of user which will recieve the file: ")
             self.file = prompt("Path to file: ")
-        self.transport.write(f"WRITE {user};{self.file};220".encode("utf-8"))
+        self.transport.write(f"WRITE {user};{self.file};220\n".encode("utf-8"))
 
     def list_users(self, args):
         print("Connected users are: ")
@@ -58,17 +58,27 @@ class HermesExchangeProtocol(Protocol):
         if choice == "y":
             self.state = "READ"
             self.filehandle = open(f"./output/{args[1]}", "wb")
-            self.transport.write("ACCEPT".encode("utf-8"))
+            self.transport.write("ACCEPT\n".encode("utf-8"))
         else:
-            self.transport.write("DENY".encode("utf-8"))
+            self.transport.write("DENY\n".encode("utf-8"))
 
     def req_accept(self, args):
         self.state = "WRITE"
         print("Request accepted. Starting file transfer.")
         with open(self.file, "rb") as f:
-            data = base64.b64encode(f.read())
-            self.transport.write("DATA ".encode("utf-8") + data)
-        self.transport.write("#EOF".encode("utf-8"))
+            data = base64.b64encode(f.read()).decode("utf-8")
+            i = 0
+            chunk = ""
+            while i < len(data):
+                chunk += data[i]
+                if len(chunk) == 1024:
+                    self.transport.write(f"DATA {chunk}\n".encode("utf-8"))
+                    chunk = ""
+                i += 1
+            if chunk != "":
+                print(chunk)
+                self.transport.write(f"DATA {chunk}\n".encode("utf-8"))
+        self.transport.write("EOF\n".encode("utf-8"))
 
     def req_deny(self, args):
         self.state = "MAIN"
@@ -76,11 +86,7 @@ class HermesExchangeProtocol(Protocol):
         self.defer_main([])
 
     def save_data(self, args):
-        frags = args[0].split("#")
-        self.b64_string += frags[0]
-
-        if len(frags) == 2 and frags[1] == "EOF":
-            self.close_data([])
+        self.b64_string += args[0]
 
     def close_data(self, args):
         self.filehandle.write(base64.b64decode(self.b64_string))
@@ -89,6 +95,10 @@ class HermesExchangeProtocol(Protocol):
         self.state = "MAIN"
         print("File transfer complete.")
         self.defer_main([])
+
+    def update_progress(self, args):
+        #print(f"Transferred {args[0]}")
+        pass
 
     def complete_write(self, args):
         self.state = "MAIN"
@@ -109,7 +119,7 @@ class HermesExchangeProtocol(Protocol):
 
     def handle_selection(self, selection):
         if selection == "1":
-            self.transport.write("LIST".encode("utf-8"))
+            self.transport.write("LIST\n".encode("utf-8"))
         elif selection == "2":
             self.write_req()
         elif selection == "3":
@@ -117,52 +127,58 @@ class HermesExchangeProtocol(Protocol):
             return
 
     def dataReceived(self, data):
-        command = data.decode("utf-8")
-        fragments = command.split(" ")
-        command = fragments[0]
-        args = fragments[1].split(";") if len(fragments) > 1 else []
+        received = data.decode("utf-8")
+        if self.buffer is not None:
+            received = self.buffer + received
+            self.buffer = None
+        split_recieved = received.split("\n")
+        if received[-1] != "\n":
+            self.buffer = split_recieved[-1]
+            split_recieved[-1] = ""
 
-        if command != "DATA" and self.state == "READ":
-            frags = command.split("#")
-            if frags[0] != "EOF":
-                self.save_data([frags[0]])
-                return
-            if "EOF" in frags:
-                self.close_data([])
-                return
+        for command in split_recieved:
+            if command == "":
+                continue
+            fragments = command.split(" ")
+            command = fragments[0]
+            args = fragments[1].split(";") if len(fragments) > 1 else []
 
-        if command == "INVALID":
-            print("Sent invalid command for the current state.")
+            print(f"{command}: {args}")
 
-        state_machine = {
-            "INIT": {
-                "AUTH": self.auth
-            },
-            "AUTH": {
-                "OK": self.defer_main,
-                "AUTHFAIL": self.auth_fail
-            },
-            "MAIN": {
-                "LIST": self.list_users,
-                "WAIT": self.wait_req,
-                "READ": self.receive_req
-            },
-            "WAIT": {
-                "ACCEPT": self.req_accept,
-                "DENY": self.req_deny
-            },
-            "READ": {
-                "DATA": self.save_data,
-            },
-            "WRITE": {
-                "OK": self.complete_write
+            if command == "INVALID":
+                print("Sent invalid command for the current state.")
+
+            state_machine = {
+                "INIT": {
+                    "AUTH": self.auth
+                },
+                "AUTH": {
+                    "OK": self.defer_main,
+                    "AUTHFAIL": self.auth_fail
+                },
+                "MAIN": {
+                    "LIST": self.list_users,
+                    "WAIT": self.wait_req,
+                    "READ": self.receive_req
+                },
+                "WAIT": {
+                    "ACCEPT": self.req_accept,
+                    "DENY": self.req_deny
+                },
+                "READ": {
+                    "DATA": self.save_data,
+                    "EOF": self.close_data
+                },
+                "WRITE": {
+                    "RECV": self.update_progress,
+                    "OK": self.complete_write
+                }
+
             }
 
-        }
-
-        if self.state in state_machine.keys():
-            if command in state_machine[self.state].keys():
-                state_machine[self.state][command](args)
+            if self.state in state_machine.keys():
+                if command in state_machine[self.state].keys():
+                    state_machine[self.state][command](args)
 
 
 class HermesExchangeFactory(ClientFactory):
