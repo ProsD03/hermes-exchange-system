@@ -32,9 +32,50 @@ class HermesExchangeProtocol(Protocol):
             reactor.stop()
 
     def write_req(self):
-        user = input("Name of user which will recieve the file: ")
-        file = input("Path to file: ")
+        with patch_stdout():
+            user = prompt("Name of user which will recieve the file: ")
+            file = prompt("Path to file: ")
         self.transport.write(f"WRITE {user};{file};220".encode("utf-8"))
+
+    def list_users(self, args):
+        print("Connected users are: ")
+        for user in args:
+            print(user)
+        self.defer_main([])
+
+    def wait_req(self, args):
+        self.state = "WAIT"
+        print("Waiting for other user to accept request...")
+
+    def receive_req(self, args):
+        print(f"User {args[0]} has requested to send a file: {args[1]}. Size: {args[2]}.")
+        choice = input("Do you accept? [y/n] ")
+        if choice == "y":
+            self.state = "READ"
+            self.transport.write("ACCEPT".encode("utf-8"))
+        else:
+            self.transport.write("DENY".encode("utf-8"))
+
+    def req_accept(self, args):
+        self.state = "WRITE"
+        print("Request accepted. Starting file transfer.")
+        self.transport.write("DATA ABCDABACDAFASFASGFASFASFQWFQFQFQGFQGWQGQG".encode("utf-8"))  # TODO: Actual read file
+
+    def req_deny(self, args):
+        self.state = "MAIN"
+        print("Request denied.")
+        self.defer_main([])
+
+    def save_data(self, args):
+        self.state = "MAIN"
+        print(args[0])  # TODO: Actual write file
+        print("Transfer Complete.")
+        self.defer_main([])
+
+    def complete_write(self, args):
+        self.state = "MAIN"
+        print("File transfer complete.")
+        self.defer_main([])
 
     def defer_main(self, args: list):
         deferLater(reactor, 0, self.main_loop)
@@ -57,53 +98,16 @@ class HermesExchangeProtocol(Protocol):
             print("Waiting for user to send request...")
             return
 
-    def list_users(self, args):
-        print("Connected users are: ")
-        for user in args:
-            print(user)
-        self.defer_main([])
-
-    def wait_req(self, args):
-        self.state = "WAIT"
-        print("Waiting for other user to accept request...")
-
-    def recieve_req(self, args):
-        print(f"User {args[0]} has requested to send a file: {args[1]}. Size: {args[2]}.")
-        choice = input("Do you accept? [y/n] ")
-        if choice == "y":
-            self.state = "READ"
-            self.transport.write("ACCEPT".encode("utf-8"))
-        else:
-            self.transport.write("DENY".encode("utf-8"))
-
-    def req_accept(self, args):
-        self.state = "WRITE"
-        print("Request accepted. Starting file transfer.")
-        self.transport.write("DATA ABCDABACDAFASFASGFASFASFQWFQFQFQGFQGWQGQG".encode("utf-8"))
-
-    def req_deny(self, args):
-        print("Request denied.")
-        self.state = "MAIN"
-        self.defer_main([])
-
-    def save_data(self, args):
-        print(args[0])
-        print("Transfer Complete.")
-        self.state = "MAIN"
-        self.defer_main([])
-
-    def complete_write(self, args):
-        print("File transfer complete.")
-        self.state = "MAIN"
-        self.defer_main([])
-
     def dataReceived(self, data):
         command = data.decode("utf-8")
         fragments = command.split(" ")
         command = fragments[0]
         args = fragments[1].split(";") if len(fragments) > 1 else []
 
-        stateMachine = {
+        if command == "INVALID":
+            print("Sent invalid command for the current state.")
+
+        state_machine = {
             "INIT": {
                 "AUTH": self.auth
             },
@@ -114,7 +118,7 @@ class HermesExchangeProtocol(Protocol):
             "MAIN": {
                 "LIST": self.list_users,
                 "WAIT": self.wait_req,
-                "READ": self.recieve_req
+                "READ": self.receive_req
             },
             "WAIT": {
                 "ACCEPT": self.req_accept,
@@ -129,7 +133,9 @@ class HermesExchangeProtocol(Protocol):
 
         }
 
-        stateMachine[self.state][command](args)
+        if self.state in state_machine.keys():
+            if command in state_machine[self.state].keys():
+                state_machine[self.state][command](args)
 
 
 class HermesExchangeFactory(ClientFactory):
@@ -147,5 +153,3 @@ class HermesExchangeFactory(ClientFactory):
 def start_client(host: str, port: int):
     reactor.connectTCP(host, port, HermesExchangeFactory())
     reactor.run()
-
-

@@ -59,18 +59,18 @@ class HermesExchangeProtocol(Protocol):
 
     def read_deny(self, args):
         self.users[self.requesting_user].state = "MAIN"
+        self.state = "MAIN"
         self.users[self.requesting_user].requested_user = None
         self.users[self.requesting_user].transport.write("DENY".encode("utf-8"))
         self.requesting_user = None
-        self.state = "MAIN"
 
     def write(self, args):
-        self.users[self.requested_user].transport.write(f"DATA {args[0]}".encode("utf-8"))
         self.users[self.requested_user].state = "MAIN"
+        self.state = "MAIN"
+        self.users[self.requested_user].transport.write(f"DATA {args[0]}".encode("utf-8"))
         self.users[self.requested_user].requesting_user = None
         self.transport.write("OK".encode("utf-8"))
         self.requested_user = None
-        self.state = "MAIN"
 
     def dataReceived(self, data):
         command = data.decode("utf-8")
@@ -80,7 +80,7 @@ class HermesExchangeProtocol(Protocol):
 
         print(f"{self.name} {command} {args}")
 
-        stateMachine = {
+        state_machine = {
             "AUTH": {
                 "AUTH": self.auth
             },
@@ -97,7 +97,11 @@ class HermesExchangeProtocol(Protocol):
             }
         }
 
-        stateMachine[self.state][command](args)
+        if self.state in state_machine.keys():
+            if command in state_machine[self.state].keys():
+                state_machine[self.state][command](args)
+            else:
+                self.transport.write("INVALID".encode("utf-8"))
 
     def connectionLost(self, reason):
         self.users.pop(self.name, None)
