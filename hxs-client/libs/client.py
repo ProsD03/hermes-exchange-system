@@ -1,3 +1,5 @@
+import base64
+
 from twisted.internet import reactor, defer
 from twisted.internet.protocol import Protocol, ClientFactory
 from prompt_toolkit import prompt
@@ -8,6 +10,9 @@ from twisted.internet.task import deferLater
 # noinspection PyArgumentList
 class HermesExchangeProtocol(Protocol):
     def __init__(self):
+        self.b64_string = ""
+        self.filehandle = None
+        self.file = None
         self.state = "INIT"
 
     def auth(self, args: list):
@@ -34,8 +39,8 @@ class HermesExchangeProtocol(Protocol):
     def write_req(self):
         with patch_stdout():
             user = prompt("Name of user which will recieve the file: ")
-            file = prompt("Path to file: ")
-        self.transport.write(f"WRITE {user};{file};220".encode("utf-8"))
+            self.file = prompt("Path to file: ")
+        self.transport.write(f"WRITE {user};{self.file};220".encode("utf-8"))
 
     def list_users(self, args):
         print("Connected users are: ")
@@ -52,6 +57,7 @@ class HermesExchangeProtocol(Protocol):
         choice = input("Do you accept? [y/n] ")
         if choice == "y":
             self.state = "READ"
+            self.filehandle = open(f"./output/{args[1]}", "wb")
             self.transport.write("ACCEPT".encode("utf-8"))
         else:
             self.transport.write("DENY".encode("utf-8"))
@@ -59,7 +65,10 @@ class HermesExchangeProtocol(Protocol):
     def req_accept(self, args):
         self.state = "WRITE"
         print("Request accepted. Starting file transfer.")
-        self.transport.write("DATA ABCDABACDAFASFASGFASFASFQWFQFQFQGFQGWQGQG".encode("utf-8"))  # TODO: Actual read file
+        with open(self.file, "rb") as f:
+            data = base64.b64encode(f.read())
+            self.transport.write("DATA ".encode("utf-8") + data)
+        self.transport.write("#EOF".encode("utf-8"))
 
     def req_deny(self, args):
         self.state = "MAIN"
@@ -67,9 +76,18 @@ class HermesExchangeProtocol(Protocol):
         self.defer_main([])
 
     def save_data(self, args):
+        frags = args[0].split("#")
+        self.b64_string += frags[0]
+
+        if len(frags) == 2 and frags[1] == "EOF":
+            self.close_data([])
+
+    def close_data(self, args):
+        self.filehandle.write(base64.b64decode(self.b64_string))
+        self.filehandle.close()
+        self.b64_string = ""
         self.state = "MAIN"
-        print(args[0])  # TODO: Actual write file
-        print("Transfer Complete.")
+        print("File transfer complete.")
         self.defer_main([])
 
     def complete_write(self, args):
@@ -103,6 +121,15 @@ class HermesExchangeProtocol(Protocol):
         fragments = command.split(" ")
         command = fragments[0]
         args = fragments[1].split(";") if len(fragments) > 1 else []
+
+        if command != "DATA" and self.state == "READ":
+            frags = command.split("#")
+            if frags[0] != "EOF":
+                self.save_data([frags[0]])
+                return
+            if "EOF" in frags:
+                self.close_data([])
+                return
 
         if command == "INVALID":
             print("Sent invalid command for the current state.")

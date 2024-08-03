@@ -64,12 +64,23 @@ class HermesExchangeProtocol(Protocol):
         self.users[self.requesting_user].transport.write("DENY".encode("utf-8"))
         self.requesting_user = None
 
-    def write(self, args):
+    def write(self, args, first=True):
+        frags = args[0].split("#")
+
+        if first:
+            self.users[self.requested_user].transport.write(f"DATA {frags[0]}".encode("utf-8"))
+        else:
+            self.users[self.requested_user].transport.write(f"{frags[0]}".encode("utf-8"))
+
+        if len(frags) == 2 and frags[1] == "EOF":
+            self.eof([])
+
+    def eof(self, args):
         self.users[self.requested_user].state = "MAIN"
         self.state = "MAIN"
-        self.users[self.requested_user].transport.write(f"DATA {args[0]}".encode("utf-8"))
-        self.users[self.requested_user].requesting_user = None
+        self.users[self.requested_user].transport.write("#EOF".encode("utf-8"))
         self.transport.write("OK".encode("utf-8"))
+        self.users[self.requested_user].requesting_user = None
         self.requested_user = None
 
     def dataReceived(self, data):
@@ -79,6 +90,15 @@ class HermesExchangeProtocol(Protocol):
         args = fragments[1].split(";") if len(fragments) > 1 else []
 
         print(f"{self.name} {command} {args}")
+
+        if command != "DATA" and self.state == "WRITE":
+            frags = command.split("#")
+            if frags[0] != "EOF":
+                self.write([frags[0]], first=False)
+            if "EOF" in frags:
+                print("EOF")
+                self.eof([])
+            return
 
         state_machine = {
             "AUTH": {
