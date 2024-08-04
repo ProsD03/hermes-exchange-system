@@ -1,4 +1,5 @@
 import base64
+import os.path
 
 from twisted.internet import reactor, defer
 from twisted.internet.protocol import Protocol, ClientFactory
@@ -27,11 +28,11 @@ class HermesExchangeProtocol(Protocol):
             self.transport.write(f"AUTH {username}\n".encode("utf-8"))
 
     def auth_fail(self, args: list):
-        if args[0] == "1":
+        if args[0] == "NOPASS":
             print("Authentication failed: Wrong or Missing password")
             self.transport.loseConnection()
             reactor.stop()
-        elif args[0] == "2":
+        elif args[0] == "ALREADYAUTH":
             print("Authentication failed: Username already in use")
             self.transport.loseConnection()
             reactor.stop()
@@ -40,7 +41,10 @@ class HermesExchangeProtocol(Protocol):
         with patch_stdout():
             user = prompt("Name of user which will recieve the file: ")
             self.file = prompt("Path to file: ")
-        self.transport.write(f"WRITE {user};{self.file};220\n".encode("utf-8"))
+            if not os.path.exists(self.file) or not os.path.isfile(self.file):
+                print("Path isn't valid or isn't a file.")
+                return
+        self.transport.write(f"WRITE {user};{self.file};{os.path.getsize(self.file)}\n".encode("utf-8"))
 
     def list_users(self, args):
         print("Connected users are: ")
@@ -52,6 +56,13 @@ class HermesExchangeProtocol(Protocol):
         self.state = "WAIT"
         print("Waiting for other user to accept request...")
 
+    def write_fail(self, args):
+        if args[0] == "NOUSER":
+            print("User does not exist")
+        elif args[0] == "NOTREADY":
+            print("User is not in WAIT state, not ready to read.")
+        self.defer_main([])
+
     def receive_req(self, args):
         print(f"User {args[0]} has requested to send a file: {args[1]}. Size: {args[2]}.")
         choice = input("Do you accept? [y/n] ")
@@ -61,6 +72,7 @@ class HermesExchangeProtocol(Protocol):
             self.transport.write("ACCEPT\n".encode("utf-8"))
         else:
             self.transport.write("DENY\n".encode("utf-8"))
+            self.defer_main([])s
 
     def req_accept(self, args):
         self.state = "WRITE"
@@ -124,6 +136,7 @@ class HermesExchangeProtocol(Protocol):
             self.write_req()
         elif selection == "3":
             print("Waiting for user to send request...")
+            self.transport.write("WAIT\n".encode("utf-8"))
             return
 
     def dataReceived(self, data):
@@ -159,7 +172,8 @@ class HermesExchangeProtocol(Protocol):
                 "MAIN": {
                     "LIST": self.list_users,
                     "WAIT": self.wait_req,
-                    "READ": self.receive_req
+                    "READ": self.receive_req,
+                    "WFAIL": self.write_fail
                 },
                 "WAIT": {
                     "ACCEPT": self.req_accept,

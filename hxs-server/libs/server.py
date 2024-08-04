@@ -20,7 +20,7 @@ class HermesExchangeProtocol(Protocol):
 
     def auth(self, args):
         if config.auth_required and len(args) < 2:
-            data = f"AUTHFAIL 1\n"
+            data = f"AUTHFAIL NOPASS\n"
             self.transport.write(data.encode("utf-8"))
             self.transport.loseConnection()
             return
@@ -28,7 +28,7 @@ class HermesExchangeProtocol(Protocol):
             pass
 
         if args[0] in self.users.keys():
-            data = f"AUTHFAIL 2\n"
+            data = f"AUTHFAIL ALREADYAUTH\n"
             self.transport.write(data.encode("utf-8"))
             self.transport.loseConnection()
         else:
@@ -42,7 +42,17 @@ class HermesExchangeProtocol(Protocol):
         data = f"LIST {users}\n"
         self.transport.write(data.encode("utf-8"))
 
+    def wait_write(self, args):
+        self.state = "WAIT"
+        return
+
     def write_req(self, args):
+        if args[0] not in self.users.keys():
+            self.transport.write("WFAIL NOUSER\n".encode("utf-8"))
+            return
+        elif self.users[args[0]].state != "WAIT":
+            self.transport.write("WFAIL NOTREADY\n".encode("utf-8"))
+            return
         self.state = "WREQ"
         self.requested_user = args[0]
         self.transport.write("WAIT\n".encode("utf-8"))
@@ -103,7 +113,8 @@ class HermesExchangeProtocol(Protocol):
                 },
                 "MAIN": {
                     "LIST": self.list_users,
-                    "WRITE": self.write_req
+                    "WRITE": self.write_req,
+                    "WAIT": self.wait_write
                 },
                 "RREQ": {
                     "ACCEPT": self.read_acc,
