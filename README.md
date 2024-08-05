@@ -1,39 +1,9 @@
 # 🪽Hermes Exchange System
-The Hermes Exchange System (HXS) is an application that allows to PCs to send files between them directly, using a server as a middleman to avoid having to edit firewall rules or host a server on one of the PCs.
+The Hermes Exchange System (HXS or simply Hermes) is an application that allows two computers to syncronously exchange files, without the need of a local server or any type of portforwarding. This keeps both computers safe, while reducing the time needed to transfer big files at a distance.
+## But why? Wouldn't any cloud storage service be enough?
+Not exactly. If you want to transfer a file using a cloud storage service, you'll have to wait for two steps to complete sequentially: the file upload and the file download. This means that the time necessary to transfer the file will be the sum of the time uses by both steps.
+Hermes works syncronously, so while uploading the file it will be downloaded at the same time, so the total transfer time will be equal to the slower time between uploading and downloading.
 
-# Hermes Exchange Protocol
-## Server Commands
-### AUTH [PWD];
-First command sent by server to client on connection. Confirms the connection and requires the client to authenticate. If PWD parameter is 0, no password is required: the client must simply choose a username to be identified; otherwise, the client must authenticate with an existing account.
-### AUTHFAIL [REASON];
-After client has sent back an AUTH packet, this is the response if the server couldn't authenticate the client. The REASON parameter is used to explain why the server couldn't authenticate. Its values can be
-- 0: User not found. Not a valid reason if PWD was 0;
-- 1: Wrong password. Not a valid reason if PWD was 0;
-- 2: Already connected, means another user is already logged with this name/account.
-### WAIT
-Sent after a WRITE request by the client. Tells it to wait for the other client to accept the write request. Any data sent by the client after a WAIT packet is ignored until the other client accepts or denies the request.
-### READ [CLIENT];[FILENAME];[FILESIZE];
-Sent to a client which another client has asked to send data to. CLIENT parameter contains the username of the client that requested to write; FILENAME contains the name and extension of the file to be sent; FILESIZE contains the lenght of the file in bytes.
-### ACCEPT
-Sent to the client that requested to write to another client. Signals that the client accepted the write and server is ready to recieve data.
-### DENY
-Sent to the client that requested to write to another client. Signals that the client refused the write and the server won't be accepting data. Client may send another WRITE command or recieve a READ command. 
-
-
-## Client Commands
-### AUTH [USERNAME];[PASSWORD];
-Response to auth command from server. USERNAME parameter contains the username in plaintext; PASSWORD parameter may be empty if not required by server (omit last ;) or valorized with the SHA256 hash of the password.
-### WRITE [CLIENT];[FILENAME];[FILESIZE];
-Request to write a file to another client. CLIENT parameter contains the username of the client to whom the client wants to write; FILENAME contains the name and extension of the file to be sent; FILESIZE contains the lenght of the file in bytes.
-### ACCEPT
-Sent to the server after a READ request, means that the client accepts the read and is ready to recieve data.
-### DENY
-Sent to the server after a READ request, means that the client refuses the write and won't be accepting data.
-
-## Generic Commands
-### OK
-Generic response to other commands, like to a succesfull AUTH command from a client.
-### EOF
-Sent at the end of data transmission to signal the end of the data sequence.
-### DATA [DATA]
-Sent at the start of data transmission to signal the start of the data sequence.
+Using Hermes also allows to transfer extremelly big files, because there is no intermidiary storage in the process. A cloud storage service allows to transfer files as long as they can fit in the avaiable space for your account.
+## Couldn't you just use FTP to do the same thing?
+Not really. FTP only allows file to be transfered between the client and the server (and vice versa), so you would still need to wait for the upload process to end before downloading the file. You would also need enough storage on the server to save the file while it is being downloaded. Hermes forwards the data packets received from the source user directly to the target user, without saving them on the server. So the transfer completes faster and no additional space is needed on the server.
