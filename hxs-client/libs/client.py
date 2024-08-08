@@ -72,7 +72,7 @@ class HermesExchangeProtocol(Protocol):
             self.transport.write("ACCEPT\n".encode("utf-8"))
         else:
             self.transport.write("DENY\n".encode("utf-8"))
-            self.defer_main([])s
+            self.defer_main([])
 
     def req_accept(self, args):
         self.state = "WRITE"

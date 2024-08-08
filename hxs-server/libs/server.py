@@ -15,16 +15,16 @@ class HermesExchangeProtocol(Protocol):
 
     def connectionMade(self):
         print(f"Connection from {self.transport.getPeer().host}")
-        data = f"AUTH {1 if config.auth_required else 0}\n"
+        data = f"AUTH {1 if config.auth.auth_required else 0}\n"
         self.transport.write(data.encode("utf-8"))
 
     def auth(self, args):
-        if config.auth_required and len(args) < 2:
+        if config.auth.auth_required and len(args) < 2:
             data = f"AUTHFAIL NOPASS\n"
             self.transport.write(data.encode("utf-8"))
             self.transport.loseConnection()
             return
-        elif config.auth_required and len(args) == 2:
+        elif config.auth.auth_required and len(args) == 2:
             pass
 
         if args[0] in self.users.keys():
@@ -144,6 +144,9 @@ class HermesExchangeFactory(Factory):
         return HermesExchangeProtocol(self, self.users)
 
 
+def bind_server():
+    reactor.listenTCP(config.server.bind_port, HermesExchangeFactory(), interface=config.server.bind_ip)
+
+
 def start_server():
-    reactor.listenTCP(config.bind_port, HermesExchangeFactory(), interface=config.bind_ip)
-    reactor.run(False)
+    reactor.run()

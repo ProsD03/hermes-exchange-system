@@ -1,0 +1,6 @@
+[server]
+bind_ip = "0.0.0.0"
+bind_port = 1303
+
+[auth]
+auth_required = false
